@@ -64,7 +64,8 @@
 
 /* ========== Reset ========== */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); -webkit-font-smoothing: antialiased; }
+html { height: 100%; }
+body { height: 100%; height: 100dvh; height: -webkit-fill-available; overflow: hidden; font-family: var(--font-ui); -webkit-font-smoothing: antialiased; }
 button { font-family: inherit; cursor: pointer; border: none; background: none; }
 input { font-family: inherit; border: none; outline: none; background: transparent; }
 
@@ -165,9 +166,7 @@ input { font-family: inherit; border: none; outline: none; background: transpare
   display: none;
 }
 @keyframes sheetUp { from { transform: translateY(80%); opacity: .6; } to { transform: translateY(0); opacity: 1; } }
-.sheet-handle {
-  width: 36px; height: 4px; background: var(--fog-20); border-radius: 2px; margin: 6px auto 14px;
-}
+/* sheet-handle removed — drag handles were decorative only and non-functional */
 .eyebrow {
   font-family: var(--font-ui); font-size: 11px; font-weight: 700;
   letter-spacing: .18em; text-transform: uppercase; color: var(--fog-60);
@@ -322,8 +321,8 @@ input { font-family: inherit; border: none; outline: none; background: transpare
 
 /* ========== API Key Prompt ========== */
 #api-key-overlay {
-  position: absolute; inset: 0; z-index: 30;
-  background: rgba(11,31,20,.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  position: fixed; inset: 0; z-index: 30;
+  background: var(--forest-ink);
   display: flex; align-items: flex-end; justify-content: center;
 }
 #api-key-sheet {
@@ -370,8 +369,16 @@ input { font-family: inherit; border: none; outline: none; background: transpare
   #rotate-prompt { display: flex !important; }
 }
 
+/* ========== Hide "/" shortcut hint on touch devices ========== */
+@media (hover: none), (pointer: coarse) {
+  #search-kbd { display: none !important; }
+}
+
 /* ========== Mapbox overrides ========== */
 .mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right { display: none; }
+.mapboxgl-ctrl-top-right { top: calc(70px + env(safe-area-inset-top)) !important; right: 8px !important; }
+.mapboxgl-ctrl-group { display: none; }
+.mapboxgl-user-location-accuracy-circle { display: none; }
 .mapboxgl-popup-content {
   font-family: var(--font-ui); font-size: 13px; border-radius: 12px; padding: 10px 14px;
   box-shadow: var(--shadow-float);
@@ -383,6 +390,13 @@ input { font-family: inherit; border: none; outline: none; background: transpare
 <div id="app">
   <div id="map"></div>
   <div id="map-protect-top"></div>
+
+  <!-- Wordmark + build number (tap to force SW update) -->
+  <button id="btn-wordmark" onclick="forceUpdate()" style="position:absolute;top:calc(env(safe-area-inset-top) + 2px);right:16px;z-index:7;padding:0;display:flex;align-items:center;gap:4px">
+    <span style="font-family:var(--font-display);font-weight:600;font-size:11px;color:var(--paper);opacity:.6;letter-spacing:-0.02em;text-shadow:0 1px 3px rgba(0,0,0,.4)">Vibe Maps</span>
+    <span id="build-num" style="font-family:var(--font-mono);font-size:9px;color:var(--paper);opacity:.4"></span>
+    <span id="update-dot" style="display:none;color:var(--lime-signal);font-size:16px;line-height:1">&bull;</span>
+  </button>
 
   <!-- Search capsule -->
   <div id="search-capsule" class="glass-paper">
@@ -425,10 +439,10 @@ input { font-family: inherit; border: none; outline: none; background: transpare
   <!-- API key prompt -->
   <div id="api-key-overlay">
     <div id="api-key-sheet">
-      <div class="sheet-handle"></div>
       <div class="eyebrow">First time here</div>
       <div style="font-family:var(--font-display);font-weight:600;font-size:34px;letter-spacing:-0.03em;color:var(--forest-ink);line-height:1;margin:6px 0 8px;font-variation-settings:'opsz' 144">Paste your Mapbox key.</div>
-      <div style="font-family:var(--font-display);font-style:italic;font-size:16px;color:var(--fog-60);margin-bottom:16px">Stored on this device only. Never sent to a server.</div>
+      <div style="font-family:var(--font-display);font-style:italic;font-size:16px;color:var(--fog-60);margin-bottom:6px">Stored locally in your browser. Only sent to Mapbox&rsquo;s APIs&mdash;never to a third-party server.</div>
+      <div style="font-family:var(--font-ui);font-size:12px;color:var(--fog-40);margin-bottom:16px;line-height:1.4">Your <strong>default public token</strong> (<span style="font-family:var(--font-mono);font-size:11px">pk.*</span>) works&mdash;no special scopes needed.</div>
       <div style="display:flex;gap:8px;align-items:center;background:var(--paper);border-radius:var(--radius-button);padding:12px 14px;margin-bottom:14px;border:1px solid rgba(11,31,20,.08)">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--fog-40)">pk.</div>
         <input id="api-key-input" type="text" placeholder="eyJ1Ijoi..." onkeydown="if(event.key==='Enter')saveApiKey()" />
@@ -449,10 +463,22 @@ input { font-family: inherit; border: none; outline: none; background: transpare
 
 <script>
 // ========== Build & SW Update ==========
-const BUILD = '1';
+const BUILD = '3';
+document.getElementById('build-num').textContent = 'b' + BUILD;
 
 let pendingUpdateSW = null;
-function showUpdateDot(sw) { pendingUpdateSW = sw; }
+function showUpdateDot(sw) {
+  pendingUpdateSW = sw;
+  document.getElementById('update-dot').style.display = 'inline';
+}
+
+function forceUpdate() {
+  if (pendingUpdateSW) {
+    pendingUpdateSW.postMessage('SKIP_WAITING');
+  } else if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(r => r.update());
+  }
+}
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(reg => {
@@ -520,7 +546,6 @@ function icon(name, size = 18, sw = 1.5) {
 // ========== Tool Rail ==========
 const tools = [
   { id: 'map', label: 'Map', icon: 'map' },
-  { id: 'search', label: 'Search', icon: 'search' },
   { id: 'directions', label: 'Directions', icon: 'compass' },
   { id: 'isochrone', label: 'Isochrone', icon: 'clock' },
   { id: 'incidents', label: 'Incidents', icon: 'star' },
@@ -550,9 +575,13 @@ function setMode(mode) {
   document.getElementById('zoom-rail').style.display = showControls ? 'flex' : 'none';
   document.getElementById('center-btn').style.display = showControls ? 'flex' : 'none';
 
+  // Hide tool rail during search (prevents overlap with suggestions)
+  document.getElementById('tool-rail').style.display = mode === 'search' ? 'none' : 'flex';
+
   if (mode === 'map') {
     if (selectedPlace) showPlaceSheet();
-    clearMapOverlays();
+    // Don't clear overlays when returning to map — let results persist
+    // User explicitly clears via tool rail (switching to another feature) or close buttons that call clearMapOverlays()
   } else if (mode === 'search') {
     document.getElementById('search-input').focus();
     showSearchSuggestions();
@@ -754,6 +783,14 @@ function setupSearch() {
     if (currentMode !== 'search') setMode('search');
   });
 
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      // Select the first suggestion if available
+      const firstRow = document.querySelector('#search-suggestions .suggestion-row');
+      if (firstRow) firstRow.click();
+    }
+  });
+
   // Keyboard shortcut
   document.addEventListener('keydown', (e) => {
     if (e.key === '/' && document.activeElement !== input) {
@@ -887,7 +924,6 @@ function showPlaceSheet() {
   const el = document.getElementById('place-sheet');
   const p = selectedPlace;
   el.innerHTML = `
-    <div class="sheet-handle"></div>
     <div class="eyebrow">${p.category}${p.address ? ' &middot; ' + p.address.split(',').pop()?.trim() : ''}</div>
     <div class="place-name">${p.name}</div>
     <div class="place-desc">${p.address || ''}</div>
@@ -969,7 +1005,7 @@ function showDirectionsSheet() {
   }
 
   el.innerHTML = `
-    <div class="sheet-handle"></div>
+
     <div class="endpoint-card">
       <div class="endpoint-row">
         <div class="endpoint-dot" style="background:#2E7DFF"></div>
@@ -992,13 +1028,13 @@ function showDirectionsSheet() {
     </div>
 
     <div class="mode-switcher" id="dir-mode-switcher">
-      <button class="${directionsState.profile === 'driving-traffic' ? 'active' : ''}" onclick="setDirectionsProfile('driving-traffic')">
+      <button data-profile="driving-traffic" class="${directionsState.profile === 'driving-traffic' ? 'active' : ''}" onclick="setDirectionsProfile('driving-traffic')">
         <span class="mode-dur" id="dur-drive">--</span><span class="mode-label">Drive</span>
       </button>
-      <button class="${directionsState.profile === 'cycling' ? 'active' : ''}" onclick="setDirectionsProfile('cycling')">
+      <button data-profile="cycling" class="${directionsState.profile === 'cycling' ? 'active' : ''}" onclick="setDirectionsProfile('cycling')">
         <span class="mode-dur" id="dur-cycle">--</span><span class="mode-label">Cycle</span>
       </button>
-      <button class="${directionsState.profile === 'walking' ? 'active' : ''}" onclick="setDirectionsProfile('walking')">
+      <button data-profile="walking" class="${directionsState.profile === 'walking' ? 'active' : ''}" onclick="setDirectionsProfile('walking')">
         <span class="mode-dur" id="dur-walk">--</span><span class="mode-label">Walk</span>
       </button>
     </div>
@@ -1018,19 +1054,24 @@ function showDirectionsSheet() {
 
     <div style="display:flex;gap:8px;margin-top:16px">
       <button class="btn-primary" style="flex:1" onclick="previewRoute()">Preview route</button>
-      <button class="btn-secondary" onclick="closeDirections()">Close</button>
+      <button class="btn-secondary" onclick="setMode('map')">Minimize</button>
+      <button class="btn-secondary" onclick="closeDirections()">Clear</button>
     </div>
   `;
   el.style.display = 'block';
 
   if (directionsState.from?.coords && directionsState.to?.coords) {
-    fetchDirections();
+    fetchAllDirections();
   }
 }
 
 function setDirectionsProfile(profile) {
   directionsState.profile = profile;
-  showDirectionsSheet();
+  // Update active state in-place instead of full re-render (prevents flicker)
+  document.querySelectorAll('#dir-mode-switcher button').forEach(btn => {
+    const isActive = btn.getAttribute('data-profile') === profile;
+    btn.className = isActive ? 'active' : '';
+  });
   if (directionsState.from?.coords && directionsState.to?.coords) {
     fetchDirections();
   }
@@ -1038,9 +1079,79 @@ function setDirectionsProfile(profile) {
 
 function swapDirections() {
   [directionsState.from, directionsState.to] = [directionsState.to, directionsState.from];
-  showDirectionsSheet();
+  // Update in-place
+  const fromEl = document.getElementById('dir-from-value');
+  const toEl = document.getElementById('dir-to-value');
+  if (fromEl) fromEl.textContent = directionsState.from?.name || 'Tap map to set';
+  if (toEl) toEl.textContent = directionsState.to?.name || 'Tap map to set';
   if (directionsState.from?.coords && directionsState.to?.coords) {
-    fetchDirections();
+    fetchAllDirections();
+  }
+}
+
+// Fetch all 3 profiles in parallel to show durations on all tabs
+async function fetchAllDirections() {
+  const token = TokenManager.get();
+  const from = directionsState.from.coords;
+  const to = directionsState.to.coords;
+  const profiles = [
+    { id: 'driving-traffic', api: 'mapbox/driving-traffic', elId: 'dur-drive' },
+    { id: 'cycling', api: 'mapbox/cycling', elId: 'dur-cycle' },
+    { id: 'walking', api: 'mapbox/walking', elId: 'dur-walk' },
+  ];
+  profiles.forEach(async (p) => {
+    try {
+      const resp = await fetch(
+        `https://api.mapbox.com/directions/v5/${p.api}/${from[0]},${from[1]};${to[0]},${to[1]}?steps=true&geometries=geojson&overview=full&access_token=${encodeURIComponent(token)}`
+      );
+      const data = await resp.json();
+      const route = data.routes?.[0];
+      if (!route) return;
+      const durMin = Math.round(route.duration / 60);
+      const el = document.getElementById(p.elId);
+      if (el) el.textContent = durMin + ' min';
+      if (p.id === directionsState.profile) {
+        updateDirectionsDisplay(route);
+      }
+    } catch (e) { /* non-fatal */ }
+  });
+}
+
+function updateDirectionsDisplay(route) {
+  directionsState.geometry = route.geometry;
+  directionsState.duration = route.duration;
+  directionsState.distance = route.distance;
+  directionsState.steps = route.legs?.[0]?.steps || [];
+
+  const durMin = Math.round(route.duration / 60);
+  const distKm = (route.distance / 1000).toFixed(1);
+
+  const summaryEl = document.getElementById('dir-summary');
+  if (summaryEl) summaryEl.style.display = 'block';
+  const durEl = document.getElementById('dir-total-dur');
+  if (durEl) durEl.textContent = durMin + ' min';
+  const distEl = document.getElementById('dir-total-dist');
+  if (distEl) distEl.textContent = distKm + ' km';
+  const noteEl = document.getElementById('dir-note');
+  if (noteEl) noteEl.textContent = directionsState.profile === 'driving-traffic' ? 'With current traffic conditions.' : '';
+
+  const stepsEl = document.getElementById('dir-steps');
+  if (stepsEl) {
+    stepsEl.innerHTML = directionsState.steps.map((s, i) => `
+      <div class="step-row">
+        <div class="step-num ${i === 0 ? 'first' : ''}">${i + 1}</div>
+        <div style="flex:1">
+          <div class="step-text">${s.maneuver?.instruction || ''}</div>
+          <div class="step-dist">${s.distance > 1000 ? (s.distance / 1000).toFixed(1) + ' km' : Math.round(s.distance) + ' m'}</div>
+        </div>
+      </div>
+    `).join('');
+    document.getElementById('dir-steps-container').style.display = 'block';
+  }
+
+  drawRoute(route.geometry);
+  if (directionsState.profile === 'driving-traffic') {
+    fetchIncidents(route.geometry);
   }
 }
 
@@ -1057,46 +1168,11 @@ async function fetchDirections() {
     const data = await resp.json();
     const route = data.routes?.[0];
     if (!route) return;
-
-    directionsState.geometry = route.geometry;
-    directionsState.duration = route.duration;
-    directionsState.distance = route.distance;
-    directionsState.steps = route.legs?.[0]?.steps || [];
-
-    // Update UI
-    const durMin = Math.round(route.duration / 60);
-    const distKm = (route.distance / 1000).toFixed(1);
-
-    // Update mode buttons with durations
-    const durEl = directionsState.profile === 'driving-traffic' ? 'dur-drive' : directionsState.profile === 'cycling' ? 'dur-cycle' : 'dur-walk';
-    const el = document.getElementById(durEl);
-    if (el) el.textContent = durMin + ' min';
-
-    document.getElementById('dir-summary').style.display = 'block';
-    document.getElementById('dir-total-dur').textContent = durMin + ' min';
-    document.getElementById('dir-total-dist').textContent = distKm + ' km';
-    document.getElementById('dir-note').textContent = directionsState.profile === 'driving-traffic' ? 'With current traffic conditions.' : '';
-
-    // Steps
-    const stepsEl = document.getElementById('dir-steps');
-    stepsEl.innerHTML = directionsState.steps.map((s, i) => `
-      <div class="step-row">
-        <div class="step-num ${i === 0 ? 'first' : ''}">${i + 1}</div>
-        <div style="flex:1">
-          <div class="step-text">${s.maneuver?.instruction || ''}</div>
-          <div class="step-dist">${s.distance > 1000 ? (s.distance / 1000).toFixed(1) + ' km' : Math.round(s.distance) + ' m'}</div>
-        </div>
-      </div>
-    `).join('');
-    document.getElementById('dir-steps-container').style.display = 'block';
-
-    // Draw route on map
-    drawRoute(route.geometry);
-
-    // Fetch incidents for driving routes
-    if (directionsState.profile === 'driving-traffic') {
-      fetchIncidents(route.geometry);
-    }
+    updateDirectionsDisplay(route);
+    // Also update the duration on the mode button
+    const durElId = directionsState.profile === 'driving-traffic' ? 'dur-drive' : directionsState.profile === 'cycling' ? 'dur-cycle' : 'dur-walk';
+    const durBtn = document.getElementById(durElId);
+    if (durBtn) durBtn.textContent = Math.round(route.duration / 60) + ' min';
   } catch (e) {
     console.error('Directions error:', e);
   }
@@ -1214,7 +1290,7 @@ function showIncidentsSheet() {
   const el = document.getElementById('incidents-sheet');
   if (!incidents.length) {
     el.innerHTML = `
-      <div class="sheet-handle"></div>
+  
       <div class="eyebrow">Traffic along this route</div>
       <div class="sheet-title">No incidents</div>
       <div class="sheet-sub">Route is clear of reported incidents.</div>
@@ -1224,7 +1300,7 @@ function showIncidentsSheet() {
   }
 
   el.innerHTML = `
-    <div class="sheet-handle"></div>
+
     <div class="eyebrow">Traffic along this route</div>
     <div class="sheet-title">${incidents.length} incident${incidents.length > 1 ? 's' : ''} ahead</div>
     <div class="sheet-sub">Check route for delays.</div>
@@ -1250,7 +1326,7 @@ function showIncidentsSheet() {
 function showIsochroneSheet() {
   const el = document.getElementById('isochrone-sheet');
   el.innerHTML = `
-    <div class="sheet-handle"></div>
+
     <div class="eyebrow">Isochrone &middot; ${isoState.pin ? 'Custom pin' : 'Your location'}</div>
     <div class="sheet-title">What's within <em style="font-style:italic;border-bottom:3px solid var(--lime-signal)">${isoState.minutes} minutes</em>?</div>
     <div class="sheet-sub">Tap the map to move the pin. See the reachable area by ${isoState.profile}.</div>
@@ -1287,8 +1363,9 @@ function showIsochroneSheet() {
       </div>
     </div>
 
-    <div style="margin-top:16px">
-      <button class="btn-secondary" style="width:100%" onclick="setMode('map')">Close</button>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn-primary" style="flex:1" onclick="setMode('map')">Keep on map</button>
+      <button class="btn-secondary" onclick="clearMapOverlays();setMode('map')">Clear</button>
     </div>
   `;
   el.style.display = 'block';
@@ -1382,7 +1459,7 @@ function showLayersSheet() {
   ];
 
   el.innerHTML = `
-    <div class="sheet-handle"></div>
+
     <div class="eyebrow">Map</div>
     <div class="sheet-title">Layers &amp; vibes</div>
 
