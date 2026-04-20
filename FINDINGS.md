@@ -4,6 +4,14 @@ Running log of bugs, rough edges, and UX issues noticed while using the deployed
 
 Legend: **FIXED** = shipped in b3, **OPEN** = still needs work/verification.
 
+## b5 fixes
+
+- **FIXED (b5)** — Blue strip under iOS status bar: globe projection's sky rendered behind `black-translucent` status bar. `#map-protect-top` now masks the safe-area band with solid `--forest-ink`, then fades to transparent below.
+- **FIXED (b5)** — Blank strip at screen bottom: dropped `-webkit-fill-available` (returned a short value on standalone iOS, overriding `100dvh`). `html`/`body` now share `100dvh` + dark background, and `map.resize()` is wired to `window` + `visualViewport` resize so the canvas always fills.
+- **FIXED (b5)** — Stray blue dot near top-right: tightened Mapbox control hiding with `!important` across all corner containers; hid `.mapboxgl-user-location-heading` + `.mapboxgl-user-location-dot-stale`; disabled `showUserHeading`.
+- **FIXED (b5)** — Search capsule not tappable: wordmark (z:7) was overlapping the capsule's right edge (cancel/clear targets). Raised `#search-capsule` to `z:8`, pushed the capsule down 16px, and shrank the wordmark into a tight glass pill so its hitbox no longer crosses into the capsule.
+- **FIXED (b5)** — Wordmark barely visible: wrapped in a small dark glass pill (`rgba(11,31,20,.38)` + blur), bumped text opacity to .85/.6. Still subtle, now readable over any map content.
+
 ## Token / key collection screen
 
 - **FIXED (b3)** — "Never sent to a server" copy: now reads "Stored locally in your browser. Only sent to Mapbox's APIs — never to a third-party server."
