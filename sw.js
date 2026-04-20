@@ -1,4 +1,4 @@
-const CACHE_VER = 'v3';
+const CACHE_VER = 'v4';
 const SHELL_CACHE = `vibemaps-shell-${CACHE_VER}`;
 
 const SHELL_URLS = ['.', 'index.html', 'manifest.json', 'icons/icon-192.png', 'icons/icon-512.png'];

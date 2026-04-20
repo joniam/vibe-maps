@@ -29,7 +29,7 @@ Legend: **FIXED** = shipped in b3, **OPEN** = still needs work/verification.
 ## Directions
 
 - **FIXED (b3)** — Blank travel times: all 3 profiles (drive/cycle/walk) are now fetched in parallel so durations always display.
-- **OPEN** — No route rendered on map: route layers exist and `drawRoute()` sets the GeoJSON source. If still not visible, may be a layer ordering issue with Mapbox Standard style (custom layers can render beneath the basemap). Needs on-device verification.
+- **FIXED (b4)** — No route rendered on map: fixed by adding route layers with explicit `'road-label'` as the `before` parameter in `map.addLayer()`, ensuring the route renders above road fills but below labels. Also increased line width (5px + 8px casing) for visibility.
 
 ## Feature flow / dismiss pattern (general)
 

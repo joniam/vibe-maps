@@ -34,7 +34,17 @@ A personal, map-first Progressive Web App for London that dogfoods the Mapbox GL
 - Step 6 ✅ — Incident overlay (severity badges, popup details)
 - Step 7 ✅ — Isochrone explorer (draggable pin, 3 time bands, show-all toggle)
 - Step 8 ✅ — Layers panel (vibe grid, 3D/terrain/traffic toggles, token management)
-- Step 9 ☐ — Polish & push
+- Step 9 ✅ — Polish pass (b3 findings fixes, versioning, update UI)
+- Step 10 ✅ — AppState + goTo() refactor, Flow 1 (map idle), Flow 2 (search e2e)
+
+## Architecture (b4+)
+- Central `AppState` object with `goTo(mode, payload)` transition function
+- Modes: idle, search, place, directions, isochrone, incidents, layers
+- Session recents stored in sessionStorage, search session tokens rotated per Search Box billing
+- Category search returns multi-result pins with list UI
+- Long-press on map forces pin drop + reverse geocode
+- Mapbox Standard POI tap detection via `queryRenderedFeatures` on `poi-label` layer
+- Route layers added with `'road-label'` as `before` param (fixes visibility on Standard style)
 
 ## Build Plan
 1. Scaffold: project folder, git init, GitHub repo, index.html, manifest.json, sw.js, icons

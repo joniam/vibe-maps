@@ -374,6 +374,74 @@ input { font-family: inherit; border: none; outline: none; background: transpare
   #search-kbd { display: none !important; }
 }
 
+/* ========== Search Cancel Button ========== */
+#search-cancel {
+  display: none; font-family: var(--font-ui); font-size: 14px; font-weight: 600;
+  color: var(--forest-ink); padding: 8px 12px; white-space: nowrap;
+}
+
+/* ========== Search Capsule Committed State ========== */
+#search-capsule.committed {
+  background: color-mix(in srgb, var(--forest-ink) 92%, transparent);
+}
+#search-capsule.committed #search-input {
+  color: var(--paper); font-family: var(--font-ui); font-style: normal;
+}
+#search-capsule.committed #search-clear { display: flex !important; background: rgba(255,255,255,.15); }
+#search-capsule.committed #search-clear svg { stroke: var(--paper); }
+#search-capsule.committed svg { stroke: var(--paper); opacity: .6; }
+
+/* ========== Category Chips ========== */
+.category-chips {
+  display: flex; gap: 8px; padding: 12px 14px 4px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.category-chips::-webkit-scrollbar { display: none; }
+.category-chip {
+  flex: 0 0 auto; padding: 8px 14px; border-radius: var(--radius-capsule);
+  background: var(--paper); border: 1px solid rgba(11,31,20,.1);
+  font-family: var(--font-ui); font-size: 13px; font-weight: 500; color: var(--forest-ink);
+  white-space: nowrap; transition: all var(--dur-ui) var(--ease-house);
+}
+.category-chip:active { background: var(--lime-signal); border-color: var(--forest-ink); }
+
+/* ========== Recents Row ========== */
+.recent-row {
+  width: 100%; text-align: left; padding: 10px 14px; border-radius: 14px;
+  display: flex; align-items: center; gap: 12px; transition: background var(--dur-ui) var(--ease-house);
+}
+.recent-row:hover { background: rgba(11,31,20,.05); }
+
+/* ========== Bottom Sheet Heights ========== */
+.bottom-sheet.peek {
+  max-height: 180px; overflow: hidden;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+.bottom-sheet.half { max-height: 50vh; }
+.bottom-sheet.expanded { max-height: 90vh; }
+
+/* ========== Sheet Close Button ========== */
+.sheet-close {
+  position: absolute; top: 12px; right: 16px; width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(11,31,20,.08); color: var(--forest-ink);
+  display: flex; align-items: center; justify-content: center; z-index: 1;
+}
+
+/* ========== Category List Results ========== */
+.result-list-row {
+  width: 100%; text-align: left; padding: 12px 14px; border-radius: 14px;
+  display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(11,31,20,.06);
+  transition: background var(--dur-ui) var(--ease-house);
+}
+.result-list-row:hover { background: rgba(11,31,20,.04); }
+.result-list-row:last-child { border-bottom: none; }
+
+/* ========== Long-press indicator ========== */
+@keyframes longPressRing { from { transform: scale(0.5); opacity: 1; } to { transform: scale(1.8); opacity: 0; } }
+.long-press-ring {
+  width: 40px; height: 40px; border-radius: 50%; border: 3px solid var(--lime-signal);
+  animation: longPressRing 600ms var(--ease-house) forwards; pointer-events: none;
+}
+
 /* ========== Mapbox overrides ========== */
 .mapboxgl-ctrl-bottom-left, .mapboxgl-ctrl-bottom-right { display: none; }
 .mapboxgl-ctrl-top-right { top: calc(70px + env(safe-area-inset-top)) !important; right: 8px !important; }
@@ -406,6 +474,7 @@ input { font-family: inherit; border: none; outline: none; background: transpare
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
     </button>
     <div id="search-kbd">&nbsp;/&nbsp;</div>
+    <button id="search-cancel" onclick="cancelSearch()">Cancel</button>
   </div>
 
   <!-- Search suggestions -->
@@ -463,7 +532,7 @@ input { font-family: inherit; border: none; outline: none; background: transpare
 
 <script>
 // ========== Build & SW Update ==========
-const BUILD = '3';
+const BUILD = '4';
 document.getElementById('build-num').textContent = 'b' + BUILD;
 
 let pendingUpdateSW = null;
@@ -509,9 +578,30 @@ const TokenManager = {
   mask(t) { return !t || t.length < 15 ? '........' : t.slice(0, 10) + '........' + t.slice(-4); },
 };
 
-// ========== State ==========
+// ========== AppState (central state model per FLOWS.md) ==========
+const AppState = {
+  mode: 'idle',  // idle | search | place | directions | isochrone | incidents | layers
+  focus: null,   // { kind: 'place'|'route'|'isochrone'|'incident', data: {}, renderedLayers: [] }
+  sheet: { visible: false, height: 'peek' },
+  lastQuery: '',
+  recents: JSON.parse(sessionStorage.getItem('vibemaps_recents') || '[]'),
+  searchSessionToken: crypto.randomUUID(),
+  committed: null,  // { name, query } — when search capsule shows a committed result
+};
+
+function saveRecents() {
+  sessionStorage.setItem('vibemaps_recents', JSON.stringify(AppState.recents.slice(0, 20)));
+}
+
+function addRecent(place) {
+  // Deduplicate by name
+  AppState.recents = AppState.recents.filter(r => r.name !== place.name);
+  AppState.recents.unshift({ name: place.name, address: place.address, coordinates: place.coordinates, mapbox_id: place.mapbox_id });
+  saveRecents();
+}
+
+// ========== Legacy State (preserved for directions/isochrone/incidents) ==========
 let map;
-let currentMode = 'map'; // map|search|directions|isochrone|incidents|layers
 let selectedPlace = null;
 let userPosition = null;
 let directionsState = { from: null, to: null, profile: 'driving-traffic', geometry: null, steps: [], duration: 0, distance: 0 };
@@ -523,6 +613,19 @@ let showTerrain = localStorage.getItem('vibemaps_terrain') !== 'false';
 let showTraffic = localStorage.getItem('vibemaps_traffic') !== 'false';
 let searchDebounce = null;
 let geoControl;
+let longPressTimer = null;
+let longPressCoord = null;
+
+// Category chips configuration
+const CATEGORIES = [
+  { label: 'Coffee', query: 'coffee', icon: 'pin' },
+  { label: 'Food', query: 'restaurant', icon: 'pin' },
+  { label: 'Bars', query: 'bar', icon: 'pin' },
+  { label: 'Transit', query: 'transit station', icon: 'pin' },
+  { label: 'Parks', query: 'park', icon: 'pin' },
+  { label: 'Fuel', query: 'fuel station', icon: 'pin' },
+  { label: 'Shops', query: 'shop', icon: 'pin' },
+];
 
 // ========== SVG Icons ==========
 function icon(name, size = 18, sw = 1.5) {
@@ -539,13 +642,15 @@ function icon(name, size = 18, sw = 1.5) {
     crosshair: '<circle cx="12" cy="12" r="9"/><line x1="12" y1="3" x2="12" y2="7"/><line x1="12" y1="17" x2="12" y2="21"/><line x1="3" y1="12" x2="7" y2="12"/><line x1="17" y1="12" x2="21" y2="12"/>',
     bookmark: '<path d="M19 21 12 17l-7 4V5a2 2 0 012-2h10a2 2 0 012 2z"/>',
     layers: '<polygon points="12 2 2 7 12 12 22 7"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+    history: '<circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/><path d="M3 12a9 9 0 0118 0"/>',
+    back: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
   };
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${icons[name] || ''}</svg>`;
 }
 
 // ========== Tool Rail ==========
 const tools = [
-  { id: 'map', label: 'Map', icon: 'map' },
+  { id: 'idle', label: 'Map', icon: 'map' },
   { id: 'directions', label: 'Directions', icon: 'compass' },
   { id: 'isochrone', label: 'Isochrone', icon: 'clock' },
   { id: 'incidents', label: 'Incidents', icon: 'star' },
@@ -555,45 +660,76 @@ const tools = [
 function renderToolRail() {
   const rail = document.getElementById('tool-rail');
   rail.innerHTML = tools.map(t =>
-    `<button class="tool-btn ${currentMode === t.id ? 'active' : ''}" title="${t.label}" onclick="setMode('${t.id}')">${icon(t.icon, 18, currentMode === t.id ? 2 : 1.6)}</button>`
+    `<button class="tool-btn ${AppState.mode === t.id ? 'active' : ''}" title="${t.label}" onclick="goTo('${t.id}')">${icon(t.icon, 18, AppState.mode === t.id ? 2 : 1.6)}</button>`
   ).join('');
 }
 
-// ========== Mode Management ==========
-function setMode(mode) {
-  const prev = currentMode;
-  currentMode = mode;
-  renderToolRail();
+// ========== goTo — Central Mode Transition (FLOWS.md) ==========
+function goTo(mode, payload) {
+  const prev = AppState.mode;
 
-  // Hide all sheets
+  // Tear down previous mode's UI
   document.querySelectorAll('.bottom-sheet').forEach(s => s.style.display = 'none');
   document.getElementById('search-suggestions').style.display = 'none';
   document.getElementById('mode-banner').style.display = 'none';
 
-  // Show/hide controls based on mode
-  const showControls = mode === 'map' || mode === 'layers';
-  document.getElementById('zoom-rail').style.display = showControls ? 'flex' : 'none';
-  document.getElementById('center-btn').style.display = showControls ? 'flex' : 'none';
+  // Clear category markers when leaving search/category results
+  if (prev === 'search' || prev === 'place') {
+    if (mode !== 'place' && mode !== 'search') {
+      clearCategoryMarkers();
+    }
+  }
 
-  // Hide tool rail during search (prevents overlap with suggestions)
+  AppState.mode = mode;
+  AppState.sheet.visible = false;
+  renderToolRail();
+
+  // Show/hide controls
+  const idleModes = ['idle', 'layers', 'place'];
+  document.getElementById('zoom-rail').style.display = idleModes.includes(mode) ? 'flex' : 'none';
+  document.getElementById('center-btn').style.display = idleModes.includes(mode) ? 'flex' : 'none';
   document.getElementById('tool-rail').style.display = mode === 'search' ? 'none' : 'flex';
 
-  if (mode === 'map') {
-    if (selectedPlace) showPlaceSheet();
-    // Don't clear overlays when returning to map — let results persist
-    // User explicitly clears via tool rail (switching to another feature) or close buttons that call clearMapOverlays()
+  // Search capsule state
+  const capsule = document.getElementById('search-capsule');
+  const cancelBtn = document.getElementById('search-cancel');
+  const kbdEl = document.getElementById('search-kbd');
+  if (mode === 'search') {
+    cancelBtn.style.display = 'block';
+    kbdEl.style.display = 'none';
+    capsule.classList.remove('committed');
+  } else {
+    cancelBtn.style.display = 'none';
+    if (!AppState.committed) {
+      kbdEl.style.display = 'block';
+    }
+  }
+
+  // Mode-specific setup
+  if (mode === 'idle') {
+    if (selectedPlace && prev === 'place') {
+      // Keep place sheet visible if coming from place mode
+    }
   } else if (mode === 'search') {
     document.getElementById('search-input').focus();
-    showSearchSuggestions();
+    showRecentsPanel();
+  } else if (mode === 'place') {
+    showPlaceSheet(payload);
   } else if (mode === 'directions') {
+    if (payload?.to) {
+      directionsState.to = payload.to;
+      directionsState.from = payload.from || (userPosition
+        ? { name: 'Current location', coords: [userPosition.lng, userPosition.lat] }
+        : { name: 'Map center', coords: [map.getCenter().lng, map.getCenter().lat] });
+    }
     showDirectionsSheet();
   } else if (mode === 'isochrone') {
-    showIsochroneSheet();
-    if (!isoState.pin && userPosition) {
-      isoState.pin = [userPosition.lng, userPosition.lat];
+    if (payload?.center) {
+      isoState.pin = payload.center;
     } else if (!isoState.pin) {
-      isoState.pin = [map.getCenter().lng, map.getCenter().lat];
+      isoState.pin = userPosition ? [userPosition.lng, userPosition.lat] : [map.getCenter().lng, map.getCenter().lat];
     }
+    showIsochroneSheet();
     addIsochronePin();
     fetchIsochrone();
     showModeBanner('Isochrone', "What's within reach?", 'Drop a pin. Pick a travel time.');
@@ -608,6 +744,9 @@ function setMode(mode) {
   }
 }
 
+// Legacy compat
+function setMode(mode) { goTo(mode); }
+
 function showModeBanner(eyebrow, title, sub) {
   const el = document.getElementById('mode-banner');
   el.innerHTML = `
@@ -616,7 +755,7 @@ function showModeBanner(eyebrow, title, sub) {
       <div style="font-family:var(--font-display);font-weight:600;font-size:20px;letter-spacing:-0.02em;color:var(--forest-ink);line-height:1.05;font-variation-settings:'opsz' 36">${title}</div>
       <div style="font-family:var(--font-display);font-style:italic;font-size:12px;color:var(--fog-60);margin-top:2px">${sub}</div>
     </div>
-    <button class="close-btn" onclick="setMode('map')">${icon('close', 14)}</button>
+    <button class="close-btn" onclick="goTo('idle')">${icon('close', 14)}</button>
   `;
   el.style.display = 'flex';
 }
@@ -652,7 +791,7 @@ function initMap(token) {
   mapboxgl.accessToken = token;
 
   const savedPos = JSON.parse(localStorage.getItem('vibemaps_position') || 'null');
-  const center = savedPos ? [savedPos.lng, savedPos.lat] : [-0.1276, 51.5074]; // London fallback
+  const center = savedPos ? [savedPos.lng, savedPos.lat] : [-0.1276, 51.5074];
   const zoom = savedPos ? savedPos.zoom : 13;
 
   map = new mapboxgl.Map({
@@ -675,34 +814,25 @@ function initMap(token) {
   map.addControl(geoControl);
 
   map.on('load', () => {
-    // Apply vibe
     applyVibe(currentVibe);
 
-    // 3D buildings
-    if (show3D) {
-      map.setConfigProperty('basemap', 'show3dObjects', true);
-    }
+    if (show3D) map.setConfigProperty('basemap', 'show3dObjects', true);
+    if (showTerrain) map.setConfigProperty('basemap', 'showTerrain', true);
 
-    // Terrain
-    if (showTerrain) {
-      map.setConfigProperty('basemap', 'showTerrain', true);
-    }
-
-    // Traffic (not directly a standard style config; we'll use it for directions profile)
-
-    // Add sources for directions/isochrone
+    // Add route layers ABOVE road labels so they render visibly (FLOWS.md fix for OPEN issue)
     map.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({
-      id: 'route-line-halo', type: 'line', source: 'route',
-      paint: { 'line-color': 'rgba(11,31,20,.25)', 'line-width': 6, 'line-blur': 1 },
+      id: 'route-line-casing', type: 'line', source: 'route',
+      paint: { 'line-color': 'rgba(11,31,20,.4)', 'line-width': 8, 'line-blur': 0 },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-    });
+    }, 'road-label');
     map.addLayer({
       id: 'route-line', type: 'line', source: 'route',
-      paint: { 'line-color': '#C8FF4C', 'line-width': 4 },
+      paint: { 'line-color': '#C8FF4C', 'line-width': 5 },
       layout: { 'line-cap': 'round', 'line-join': 'round' },
-    });
+    }, 'road-label');
 
+    // Isochrone layers
     map.addSource('isochrone', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({
       id: 'isochrone-fill', type: 'fill', source: 'isochrone',
@@ -713,11 +843,24 @@ function initMap(token) {
       paint: { 'line-color': ['get', 'stroke'], 'line-width': 1.5, 'line-dasharray': [2, 2], 'line-blur': 0.5 },
     });
 
+    // Category search result pins source
+    map.addSource('category-pins', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'category-pins-circle', type: 'circle', source: 'category-pins',
+      paint: {
+        'circle-radius': 7, 'circle-color': '#C8FF4C',
+        'circle-stroke-width': 2, 'circle-stroke-color': '#0B1F14',
+      },
+    });
+
     // Trigger geolocation
     geoControl.trigger();
 
-    // Click to select place in search
+    // Map interactions
     map.on('click', onMapClick);
+
+    // Long-press detection for touch
+    setupLongPress();
   });
 
   geoControl.on('geolocate', (e) => {
@@ -731,6 +874,49 @@ function initMap(token) {
   });
 
   renderToolRail();
+}
+
+// ========== Long-press (Flow 1) ==========
+function setupLongPress() {
+  const canvas = map.getCanvas();
+
+  canvas.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    longPressCoord = { x: touch.clientX, y: touch.clientY };
+    longPressTimer = setTimeout(() => {
+      // Convert to map coordinates
+      const point = map.unproject([longPressCoord.x - canvas.getBoundingClientRect().left, longPressCoord.y - canvas.getBoundingClientRect().top]);
+      handleLongPress(point);
+    }, 500);
+  }, { passive: true });
+
+  canvas.addEventListener('touchmove', (e) => {
+    if (!longPressTimer) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - longPressCoord.x;
+    const dy = touch.clientY - longPressCoord.y;
+    if (Math.sqrt(dx * dx + dy * dy) > 10) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }, { passive: true });
+
+  canvas.addEventListener('touchend', () => {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }, { passive: true });
+
+  canvas.addEventListener('touchcancel', () => {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }, { passive: true });
+}
+
+function handleLongPress(lngLat) {
+  if (AppState.mode !== 'idle' && AppState.mode !== 'place') return;
+  // Force a pin drop + reverse geocode regardless of POI
+  reverseGeocodeAndShow(lngLat.lng, lngLat.lat);
 }
 
 // ========== Vibe System ==========
@@ -747,18 +933,13 @@ function applyVibe(vibeId) {
   localStorage.setItem('vibemaps_vibe', vibeId);
   const v = VIBES[vibeId];
   if (!map) return;
-
-  try {
-    map.setConfigProperty('basemap', 'lightPreset', v.lightPreset);
-  } catch (e) { /* style may not be fully loaded */ }
-
-  // Update route line color
+  try { map.setConfigProperty('basemap', 'lightPreset', v.lightPreset); } catch (e) {}
   if (map.getLayer('route-line')) {
     map.setPaintProperty('route-line', 'line-color', v.accent);
   }
 }
 
-// ========== Search ==========
+// ========== Search (Flow 2) ==========
 function setupSearch() {
   const input = document.getElementById('search-input');
   const clear = document.getElementById('search-clear');
@@ -767,53 +948,259 @@ function setupSearch() {
   input.addEventListener('input', () => {
     const q = input.value;
     clear.style.display = q ? 'flex' : 'none';
-    kbd.style.display = q ? 'none' : 'block';
+    if (AppState.mode !== 'search') kbd.style.display = q ? 'none' : 'block';
     input.style.fontFamily = q ? 'var(--font-ui)' : 'var(--font-display)';
     input.style.fontStyle = q ? 'normal' : 'italic';
 
     clearTimeout(searchDebounce);
     if (q.length >= 2) {
-      searchDebounce = setTimeout(() => fetchSearchResults(q), 300);
-    } else {
-      showSearchSuggestions();
+      searchDebounce = setTimeout(() => fetchSearchResults(q), 150);
+    } else if (q.length === 0) {
+      showRecentsPanel();
     }
   });
 
   input.addEventListener('focus', () => {
-    if (currentMode !== 'search') setMode('search');
+    if (AppState.mode !== 'search') goTo('search');
   });
 
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
-      // Select the first suggestion if available
       const firstRow = document.querySelector('#search-suggestions .suggestion-row');
       if (firstRow) firstRow.click();
     }
   });
 
-  // Keyboard shortcut
   document.addEventListener('keydown', (e) => {
     if (e.key === '/' && document.activeElement !== input) {
       e.preventDefault();
-      setMode('search');
+      goTo('search');
     }
     if (e.key === 'Escape') {
-      if (currentMode === 'search') setMode('map');
+      if (AppState.mode === 'search') cancelSearch();
       input.blur();
     }
   });
+}
+
+// Cancel search — exits mode, restores tool rail
+function cancelSearch() {
+  const input = document.getElementById('search-input');
+  input.value = '';
+  input.style.fontFamily = 'var(--font-display)';
+  input.style.fontStyle = 'italic';
+  document.getElementById('search-clear').style.display = 'none';
+  document.getElementById('search-suggestions').style.display = 'none';
+  if (AppState.committed) {
+    // Restore committed state
+    input.value = AppState.committed.name;
+    input.style.fontFamily = 'var(--font-ui)';
+    input.style.fontStyle = 'normal';
+    document.getElementById('search-capsule').classList.add('committed');
+    document.getElementById('search-clear').style.display = 'flex';
+  }
+  goTo('idle');
+}
+
+// Clear committed search result
+function clearSearch() {
+  const input = document.getElementById('search-input');
+  if (AppState.committed) {
+    AppState.committed = null;
+    document.getElementById('search-capsule').classList.remove('committed');
+    clearMarkers();
+    clearCategoryMarkers();
+    selectedPlace = null;
+    document.getElementById('place-sheet').style.display = 'none';
+  }
+  input.value = '';
+  input.style.fontFamily = 'var(--font-display)';
+  input.style.fontStyle = 'italic';
+  document.getElementById('search-clear').style.display = 'none';
+  document.getElementById('search-kbd').style.display = 'block';
+  document.getElementById('search-suggestions').style.display = 'none';
+  if (AppState.mode === 'search') goTo('idle');
+}
+
+// Show recents panel with category chips (Flow 2)
+function showRecentsPanel() {
+  const el = document.getElementById('search-suggestions');
+  const recentsHtml = AppState.recents.length > 0
+    ? AppState.recents.slice(0, 5).map(r => `
+        <button class="recent-row" onclick='selectRecent(${JSON.stringify(r).replace(/'/g, "&#39;")})'>
+          <div style="width:28px;height:28px;border-radius:50%;background:rgba(11,31,20,.06);color:var(--fog-60);display:flex;align-items:center;justify-content:center;flex:0 0 auto">
+            ${icon('history', 14)}
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-family:var(--font-ui);font-weight:500;font-size:14px;color:var(--forest-ink);line-height:1.2">${r.name}</div>
+            <div style="font-family:var(--font-ui);font-size:11px;color:var(--fog-60);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.address || ''}</div>
+          </div>
+        </button>
+      `).join('')
+    : `<div style="font-family:var(--font-display);font-style:italic;font-size:14px;color:var(--fog-40);padding:8px 14px">No recent searches yet.</div>`;
+
+  el.innerHTML = `
+    <div class="category-chips">
+      ${CATEGORIES.map(c => `<button class="category-chip" onclick="searchCategory('${c.query}')">${c.label}</button>`).join('')}
+    </div>
+    <div style="padding:12px 14px 4px" class="eyebrow">Recent</div>
+    ${recentsHtml}
+  `;
+  el.style.display = 'block';
+}
+
+function selectRecent(recent) {
+  if (recent.mapbox_id) {
+    selectSuggestion(recent.mapbox_id);
+  } else if (recent.coordinates) {
+    selectedPlace = { name: recent.name, address: recent.address || '', category: '', coordinates: recent.coordinates, properties: {} };
+    commitSearch(recent.name);
+    dropPlacePin(recent.coordinates);
+    map.flyTo({ center: recent.coordinates, zoom: 16, duration: 480, padding: { bottom: 200 } });
+    goTo('place');
+  }
+}
+
+// Category search (Flow 2 — multi-result)
+async function searchCategory(query) {
+  const token = TokenManager.get();
+  if (!token) return;
+
+  const input = document.getElementById('search-input');
+  input.value = query;
+  input.style.fontFamily = 'var(--font-ui)';
+  input.style.fontStyle = 'normal';
+
+  const center = map.getCenter();
+  const bounds = map.getBounds();
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+
+  try {
+    const resp = await fetch(
+      `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(query)}&language=en&limit=10&proximity=${center.lng},${center.lat}&bbox=${bbox}&session_token=${AppState.searchSessionToken}&access_token=${encodeURIComponent(token)}`
+    );
+    const data = await resp.json();
+    const suggestions = data.suggestions || [];
+
+    if (suggestions.length === 0) {
+      renderSearchResults([]);
+      return;
+    }
+
+    // Retrieve all results for category display
+    const results = await Promise.all(
+      suggestions.slice(0, 10).map(async (s) => {
+        try {
+          const r = await fetch(`https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(s.mapbox_id)}?session_token=${AppState.searchSessionToken}&access_token=${encodeURIComponent(token)}`);
+          const d = await r.json();
+          const f = d.features?.[0];
+          if (!f) return null;
+          return {
+            name: f.properties?.name || s.name,
+            address: f.properties?.full_address || f.properties?.place_formatted || s.full_address || '',
+            category: f.properties?.poi_category_ids?.[0] || '',
+            coordinates: f.geometry.coordinates,
+            mapbox_id: s.mapbox_id,
+            properties: f.properties || {},
+          };
+        } catch { return null; }
+      })
+    );
+
+    const validResults = results.filter(Boolean);
+    if (validResults.length > 0) {
+      showCategoryResults(validResults, query);
+    }
+  } catch (e) {
+    console.error('Category search error:', e);
+  }
+}
+
+function showCategoryResults(results, query) {
+  // Commit the search capsule
+  commitSearch(query);
+
+  // Drop pins on map
+  const features = results.map(r => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: r.coordinates },
+    properties: { name: r.name },
+  }));
+  if (map.getSource('category-pins')) {
+    map.getSource('category-pins').setData({ type: 'FeatureCollection', features });
+  }
+
+  // Fit bounds to results
+  if (results.length > 1) {
+    const bounds = results.reduce((b, r) => b.extend(r.coordinates), new mapboxgl.LngLatBounds(results[0].coordinates, results[0].coordinates));
+    map.fitBounds(bounds, { padding: { top: 100, bottom: 280, left: 60, right: 60 }, duration: 480 });
+  }
+
+  // Show list in suggestions panel as a bottom sheet
+  const el = document.getElementById('search-suggestions');
+  el.innerHTML = `
+    <div style="padding:10px 14px 6px" class="eyebrow">${results.length} results for "${query}"</div>
+    ${results.map((r, i) => `
+      <button class="result-list-row" onclick='selectCategoryResult(${JSON.stringify(r).replace(/'/g, "&#39;")})'>
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--lime-signal);color:var(--forest-ink);display:flex;align-items:center;justify-content:center;flex:0 0 auto;font-family:var(--font-mono);font-size:11px;font-weight:600">${i + 1}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-family:var(--font-display);font-weight:600;font-size:16px;letter-spacing:-0.015em;color:var(--forest-ink);line-height:1.1;font-variation-settings:'opsz' 36">${r.name}</div>
+          <div style="font-family:var(--font-ui);font-size:11px;color:var(--fog-60);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.address}</div>
+        </div>
+      </button>
+    `).join('')}
+  `;
+  el.style.display = 'block';
+  goTo('idle');
+  // Keep suggestions visible as a results list
+  el.style.display = 'block';
+}
+
+function selectCategoryResult(result) {
+  selectedPlace = result;
+  addRecent(result);
+  clearCategoryMarkers();
+  dropPlacePin(result.coordinates);
+  map.flyTo({ center: result.coordinates, zoom: 16, duration: 480, padding: { bottom: 200 } });
+  document.getElementById('search-suggestions').style.display = 'none';
+  goTo('place');
+}
+
+function clearCategoryMarkers() {
+  if (map && map.getSource('category-pins')) {
+    map.getSource('category-pins').setData({ type: 'FeatureCollection', features: [] });
+  }
+}
+
+// Commit search — collapse capsule to show result name
+function commitSearch(name) {
+  AppState.committed = { name };
+  const input = document.getElementById('search-input');
+  const capsule = document.getElementById('search-capsule');
+  input.value = name;
+  input.style.fontFamily = 'var(--font-ui)';
+  input.style.fontStyle = 'normal';
+  capsule.classList.add('committed');
+  document.getElementById('search-clear').style.display = 'flex';
+  document.getElementById('search-kbd').style.display = 'none';
+  document.getElementById('search-cancel').style.display = 'none';
 }
 
 async function fetchSearchResults(query) {
   const token = TokenManager.get();
   if (!token) return;
 
-  const proximity = userPosition ? `${userPosition.lng},${userPosition.lat}` : '-0.1276,51.5074';
+  const center = map.getCenter();
+  const proximity = userPosition ? `${userPosition.lng},${userPosition.lat}` : `${center.lng},${center.lat}`;
+  const bounds = map.getBounds();
+  const bbox = `${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`;
+
   try {
     const resp = await fetch(
-      `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(query)}&language=en&limit=6&proximity=${proximity}&access_token=${encodeURIComponent(token)}`
+      `https://api.mapbox.com/search/searchbox/v1/suggest?q=${encodeURIComponent(query)}&language=en&limit=8&proximity=${proximity}&bbox=${bbox}&session_token=${AppState.searchSessionToken}&country=gb&access_token=${encodeURIComponent(token)}`
     );
     const data = await resp.json();
+    AppState.lastQuery = query;
     renderSearchResults(data.suggestions || []);
   } catch (e) {
     console.error('Search error:', e);
@@ -824,16 +1211,16 @@ function renderSearchResults(results) {
   const el = document.getElementById('search-suggestions');
   if (!results.length) {
     el.innerHTML = `
-      <div style="padding:10px 14px 6px" class="eyebrow" style="font-size:10px">${document.getElementById('search-input').value ? '0 matches' : 'Recent'}</div>
-      <div style="font-family:var(--font-display);font-style:italic;font-size:15px;color:var(--fog-40);padding:12px 14px 16px">No places by that name.</div>
+      <div style="padding:10px 14px 6px" class="eyebrow">0 matches</div>
+      <div style="font-family:var(--font-display);font-style:italic;font-size:15px;color:var(--fog-40);padding:12px 14px 16px">No places by that name nearby.</div>
     `;
     el.style.display = 'block';
     return;
   }
 
   el.innerHTML = `
-    <div style="padding:10px 14px 6px" class="eyebrow">${results.length} matches</div>
-    ${results.map((r, i) => `
+    <div style="padding:10px 14px 6px" class="eyebrow">${results.length} suggestions</div>
+    ${results.map((r) => `
       <button class="suggestion-row" onclick='selectSuggestion(${JSON.stringify(r.mapbox_id)})'>
         <div style="width:32px;height:32px;border-radius:50%;background:var(--forest-ink);color:var(--lime-signal);display:flex;align-items:center;justify-content:center;flex:0 0 auto">
           ${icon('pin', 14)}
@@ -848,66 +1235,50 @@ function renderSearchResults(results) {
   el.style.display = 'block';
 }
 
-function showSearchSuggestions() {
-  const el = document.getElementById('search-suggestions');
-  const q = document.getElementById('search-input').value;
-  if (!q) {
-    el.innerHTML = `
-      <div style="padding:10px 14px 6px" class="eyebrow">Search</div>
-      <div style="font-family:var(--font-display);font-style:italic;font-size:15px;color:var(--fog-40);padding:12px 14px 16px">Type to search for places, addresses, or points of interest.</div>
-    `;
-    el.style.display = currentMode === 'search' ? 'block' : 'none';
-  }
-}
-
 async function selectSuggestion(mapboxId) {
   const token = TokenManager.get();
   try {
     const resp = await fetch(
-      `https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(mapboxId)}?access_token=${encodeURIComponent(token)}`
+      `https://api.mapbox.com/search/searchbox/v1/retrieve/${encodeURIComponent(mapboxId)}?session_token=${AppState.searchSessionToken}&access_token=${encodeURIComponent(token)}`
     );
     const data = await resp.json();
     const feature = data.features?.[0];
     if (!feature) return;
+
+    // Rotate session token after successful retrieve (per Search Box billing best practice)
+    AppState.searchSessionToken = crypto.randomUUID();
 
     selectedPlace = {
       name: feature.properties?.name || 'Unknown',
       address: feature.properties?.full_address || feature.properties?.place_formatted || '',
       category: feature.properties?.poi_category_ids?.[0] || feature.properties?.feature_type || '',
       coordinates: feature.geometry.coordinates,
+      mapbox_id: mapboxId,
       properties: feature.properties,
     };
 
-    // Fly to location
-    map.flyTo({ center: feature.geometry.coordinates, zoom: 16, duration: 480, essential: true });
+    addRecent(selectedPlace);
+    commitSearch(selectedPlace.name);
 
-    // Add marker
+    // Fly to with padding for sheet
+    map.flyTo({ center: feature.geometry.coordinates, zoom: Math.max(map.getZoom(), 15), duration: 480, padding: { bottom: 200 } });
+
     clearMarkers();
-    const markerEl = document.createElement('div');
-    markerEl.innerHTML = `<div style="background:var(--lime-signal);color:var(--forest-ink);padding:6px 14px;border-radius:9999px;font-family:var(--font-display);font-weight:600;font-size:15px;letter-spacing:-0.02em;box-shadow:var(--shadow-pin);white-space:nowrap;font-variation-settings:'opsz' 36">${selectedPlace.name}</div><div style="width:9px;height:9px;border-radius:50%;background:var(--lime-signal);margin:5px auto 0;border:2px solid var(--forest-ink);box-shadow:0 0 0 4px rgba(200,255,76,.4)"></div>`;
-    markerEl.style.textAlign = 'center';
-    window._placeMarker = new mapboxgl.Marker({ element: markerEl, anchor: 'bottom' })
-      .setLngLat(feature.geometry.coordinates)
-      .addTo(map);
-
-    setMode('map');
-    document.getElementById('search-input').value = '';
-    document.getElementById('search-clear').style.display = 'none';
-    document.getElementById('search-kbd').style.display = 'block';
-    showPlaceSheet();
+    dropPlacePin(feature.geometry.coordinates);
+    goTo('place');
   } catch (e) {
     console.error('Retrieve error:', e);
   }
 }
 
-function clearSearch() {
-  document.getElementById('search-input').value = '';
-  document.getElementById('search-clear').style.display = 'none';
-  document.getElementById('search-kbd').style.display = 'block';
-  document.getElementById('search-input').style.fontFamily = 'var(--font-display)';
-  document.getElementById('search-input').style.fontStyle = 'italic';
-  document.getElementById('search-suggestions').style.display = 'none';
-  setMode('map');
+function dropPlacePin(coords) {
+  clearMarkers();
+  const markerEl = document.createElement('div');
+  markerEl.innerHTML = `<div style="background:var(--lime-signal);color:var(--forest-ink);padding:6px 14px;border-radius:9999px;font-family:var(--font-display);font-weight:600;font-size:15px;letter-spacing:-0.02em;box-shadow:var(--shadow-pin);white-space:nowrap;font-variation-settings:'opsz' 36;max-width:200px;overflow:hidden;text-overflow:ellipsis">${selectedPlace?.name || 'Pin'}</div><div style="width:9px;height:9px;border-radius:50%;background:var(--lime-signal);margin:5px auto 0;border:2px solid var(--forest-ink);box-shadow:0 0 0 4px rgba(200,255,76,.4)"></div>`;
+  markerEl.style.textAlign = 'center';
+  window._placeMarker = new mapboxgl.Marker({ element: markerEl, anchor: 'bottom' })
+    .setLngLat(coords)
+    .addTo(map);
 }
 
 function clearMarkers() {
@@ -918,85 +1289,133 @@ function clearMarkers() {
   if (window._incidentMarkers) { window._incidentMarkers.forEach(m => m.remove()); window._incidentMarkers = []; }
 }
 
-// ========== Place Sheet ==========
-function showPlaceSheet() {
+// ========== Place Sheet (Flow 1 + Flow 3 basics) ==========
+function showPlaceSheet(payload) {
+  if (payload) selectedPlace = payload;
   if (!selectedPlace) return;
   const el = document.getElementById('place-sheet');
   const p = selectedPlace;
+
+  // Build meta line
+  const metaParts = [];
+  if (p.category) metaParts.push(p.category);
+  if (p.address) {
+    const short = p.address.split(',').slice(-2).join(',').trim();
+    metaParts.push(short);
+  }
+
   el.innerHTML = `
-    <div class="eyebrow">${p.category}${p.address ? ' &middot; ' + p.address.split(',').pop()?.trim() : ''}</div>
+    <button class="sheet-close" onclick="closePlaceSheet()">${icon('close', 14)}</button>
+    <div class="eyebrow">${metaParts.join(' \u00b7 ')}</div>
     <div class="place-name">${p.name}</div>
-    <div class="place-desc">${p.address || ''}</div>
+    ${p.address ? `<div class="place-desc">${p.address}</div>` : ''}
+    ${p.properties?.phone ? `<div style="font-family:var(--font-ui);font-size:13px;margin-bottom:6px"><a href="tel:${p.properties.phone}" style="color:var(--forest-ink);text-decoration:underline">${p.properties.phone}</a></div>` : ''}
+    ${p.properties?.website ? `<div style="font-family:var(--font-ui);font-size:13px;margin-bottom:6px"><a href="${p.properties.website}" target="_blank" rel="noopener" style="color:var(--forest-ink);text-decoration:underline">Website</a></div>` : ''}
+    ${p.coordinates ? `<div style="font-family:var(--font-mono);font-size:10px;color:var(--fog-40);margin-bottom:12px">${p.coordinates[1].toFixed(5)}, ${p.coordinates[0].toFixed(5)}</div>` : ''}
     <div style="display:flex;gap:8px">
       <button class="btn-primary" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px" onclick="startDirectionsTo()">
         ${icon('compass', 16)} Directions
       </button>
-      <button class="btn-secondary" onclick="closePlaceSheet()" style="display:flex;align-items:center;justify-content:center">
-        ${icon('close', 18)}
+      <button class="btn-secondary" onclick="startIsoFromPlace()" style="display:flex;align-items:center;justify-content:center;gap:6px;font-size:12px">
+        ${icon('clock', 14)} Reachable
       </button>
     </div>
   `;
   el.style.display = 'block';
+  AppState.sheet.visible = true;
 }
 
 function closePlaceSheet() {
   document.getElementById('place-sheet').style.display = 'none';
   selectedPlace = null;
   clearMarkers();
+  AppState.sheet.visible = false;
+  if (AppState.mode === 'place') goTo('idle');
 }
 
 function startDirectionsTo() {
   if (!selectedPlace) return;
-  directionsState.to = { name: selectedPlace.name, coords: selectedPlace.coordinates };
-  directionsState.from = userPosition ? { name: 'Current location', coords: [userPosition.lng, userPosition.lat] } : { name: 'Map center', coords: [map.getCenter().lng, map.getCenter().lat] };
-  closePlaceSheet();
-  setMode('directions');
+  const to = { name: selectedPlace.name, coords: selectedPlace.coordinates };
+  const from = userPosition
+    ? { name: 'Current location', coords: [userPosition.lng, userPosition.lat] }
+    : { name: 'Map center', coords: [map.getCenter().lng, map.getCenter().lat] };
+  clearMarkers();
+  goTo('directions', { from, to });
 }
 
-// ========== Map Click ==========
+function startIsoFromPlace() {
+  if (!selectedPlace) return;
+  const center = selectedPlace.coordinates;
+  clearMarkers();
+  goTo('isochrone', { center });
+}
+
+// ========== Map Click (Flow 1) ==========
 function onMapClick(e) {
-  if (currentMode === 'isochrone') {
+  if (AppState.mode === 'isochrone') {
     isoState.pin = [e.lngLat.lng, e.lngLat.lat];
     addIsochronePin();
     fetchIsochrone();
     return;
   }
-  if (currentMode !== 'map' && currentMode !== 'search') return;
+  if (AppState.mode !== 'idle' && AppState.mode !== 'place') return;
 
-  // Reverse geocode
+  // Check for Mapbox Standard POI features first
+  const poiLayers = ['poi-label'];
+  const features = map.queryRenderedFeatures(e.point, { layers: poiLayers });
+
+  if (features.length > 0) {
+    const f = features[0];
+    const props = f.properties || {};
+    selectedPlace = {
+      name: props.name || props.name_en || 'Place',
+      address: props.address || '',
+      category: props.category_en || props.type || props.maki || '',
+      coordinates: [e.lngLat.lng, e.lngLat.lat],
+      properties: props,
+    };
+    dropPlacePin([e.lngLat.lng, e.lngLat.lat]);
+    goTo('place');
+    return;
+  }
+
+  // Reverse geocode tap on empty map area
+  reverseGeocodeAndShow(e.lngLat.lng, e.lngLat.lat);
+}
+
+function reverseGeocodeAndShow(lng, lat) {
   const token = TokenManager.get();
-  fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${e.lngLat.lng},${e.lngLat.lat}.json?types=address,poi&limit=1&access_token=${encodeURIComponent(token)}`)
+  fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=address,poi&limit=1&access_token=${encodeURIComponent(token)}`)
     .then(r => r.json())
     .then(data => {
       const feat = data.features?.[0];
-      if (!feat) return;
       selectedPlace = {
-        name: feat.text || feat.place_name,
-        address: feat.place_name || '',
-        category: feat.properties?.category || '',
-        coordinates: [e.lngLat.lng, e.lngLat.lat],
-        properties: feat.properties || {},
+        name: feat?.text || feat?.place_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+        address: feat?.place_name || '',
+        category: feat?.properties?.category || '',
+        coordinates: [lng, lat],
+        properties: feat?.properties || {},
       };
-      clearMarkers();
-      const markerEl = document.createElement('div');
-      markerEl.innerHTML = `<div style="background:var(--lime-signal);color:var(--forest-ink);padding:6px 14px;border-radius:9999px;font-family:var(--font-display);font-weight:600;font-size:15px;letter-spacing:-0.02em;box-shadow:var(--shadow-pin);white-space:nowrap;font-variation-settings:'opsz' 36">${selectedPlace.name}</div><div style="width:9px;height:9px;border-radius:50%;background:var(--lime-signal);margin:5px auto 0;border:2px solid var(--forest-ink);box-shadow:0 0 0 4px rgba(200,255,76,.4)"></div>`;
-      markerEl.style.textAlign = 'center';
-      window._placeMarker = new mapboxgl.Marker({ element: markerEl, anchor: 'bottom' })
-        .setLngLat([e.lngLat.lng, e.lngLat.lat])
-        .addTo(map);
-      setMode('map');
-      showPlaceSheet();
+      dropPlacePin([lng, lat]);
+      goTo('place');
+    })
+    .catch(() => {
+      // Even if geocode fails, drop a pin with coords
+      selectedPlace = {
+        name: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+        address: '',
+        category: 'Dropped pin',
+        coordinates: [lng, lat],
+        properties: {},
+      };
+      dropPlacePin([lng, lat]);
+      goTo('place');
     });
 }
 
 // ========== Directions ==========
 function showDirectionsSheet() {
   const el = document.getElementById('directions-sheet');
-  const profiles = [
-    { id: 'driving-traffic', label: 'Drive', dur: directionsState.duration },
-    { id: 'cycling', label: 'Cycle', dur: 0 },
-    { id: 'walking', label: 'Walk', dur: 0 },
-  ];
 
   if (!directionsState.from) {
     directionsState.from = userPosition
@@ -1005,7 +1424,6 @@ function showDirectionsSheet() {
   }
 
   el.innerHTML = `
-
     <div class="endpoint-card">
       <div class="endpoint-row">
         <div class="endpoint-dot" style="background:#2E7DFF"></div>
@@ -1054,7 +1472,7 @@ function showDirectionsSheet() {
 
     <div style="display:flex;gap:8px;margin-top:16px">
       <button class="btn-primary" style="flex:1" onclick="previewRoute()">Preview route</button>
-      <button class="btn-secondary" onclick="setMode('map')">Minimize</button>
+      <button class="btn-secondary" onclick="goTo('idle')">Minimize</button>
       <button class="btn-secondary" onclick="closeDirections()">Clear</button>
     </div>
   `;
@@ -1067,10 +1485,8 @@ function showDirectionsSheet() {
 
 function setDirectionsProfile(profile) {
   directionsState.profile = profile;
-  // Update active state in-place instead of full re-render (prevents flicker)
   document.querySelectorAll('#dir-mode-switcher button').forEach(btn => {
-    const isActive = btn.getAttribute('data-profile') === profile;
-    btn.className = isActive ? 'active' : '';
+    btn.className = btn.getAttribute('data-profile') === profile ? 'active' : '';
   });
   if (directionsState.from?.coords && directionsState.to?.coords) {
     fetchDirections();
@@ -1079,17 +1495,13 @@ function setDirectionsProfile(profile) {
 
 function swapDirections() {
   [directionsState.from, directionsState.to] = [directionsState.to, directionsState.from];
-  // Update in-place
   const fromEl = document.getElementById('dir-from-value');
   const toEl = document.getElementById('dir-to-value');
   if (fromEl) fromEl.textContent = directionsState.from?.name || 'Tap map to set';
   if (toEl) toEl.textContent = directionsState.to?.name || 'Tap map to set';
-  if (directionsState.from?.coords && directionsState.to?.coords) {
-    fetchAllDirections();
-  }
+  if (directionsState.from?.coords && directionsState.to?.coords) fetchAllDirections();
 }
 
-// Fetch all 3 profiles in parallel to show durations on all tabs
 async function fetchAllDirections() {
   const token = TokenManager.get();
   const from = directionsState.from.coords;
@@ -1110,9 +1522,7 @@ async function fetchAllDirections() {
       const durMin = Math.round(route.duration / 60);
       const el = document.getElementById(p.elId);
       if (el) el.textContent = durMin + ' min';
-      if (p.id === directionsState.profile) {
-        updateDirectionsDisplay(route);
-      }
+      if (p.id === directionsState.profile) updateDirectionsDisplay(route);
     } catch (e) { /* non-fatal */ }
   });
 }
@@ -1138,7 +1548,7 @@ function updateDirectionsDisplay(route) {
   const stepsEl = document.getElementById('dir-steps');
   if (stepsEl) {
     stepsEl.innerHTML = directionsState.steps.map((s, i) => `
-      <div class="step-row">
+      <div class="step-row" onclick="flyToStep(${i})" style="cursor:pointer">
         <div class="step-num ${i === 0 ? 'first' : ''}">${i + 1}</div>
         <div style="flex:1">
           <div class="step-text">${s.maneuver?.instruction || ''}</div>
@@ -1150,9 +1560,14 @@ function updateDirectionsDisplay(route) {
   }
 
   drawRoute(route.geometry);
-  if (directionsState.profile === 'driving-traffic') {
-    fetchIncidents(route.geometry);
-  }
+  if (directionsState.profile === 'driving-traffic') fetchIncidents(route.geometry);
+}
+
+// Fly to a specific step maneuver (Flow 4 — tap-to-fly)
+function flyToStep(index) {
+  const step = directionsState.steps[index];
+  if (!step?.maneuver?.location) return;
+  map.flyTo({ center: step.maneuver.location, zoom: 17, duration: 400 });
 }
 
 async function fetchDirections() {
@@ -1169,7 +1584,6 @@ async function fetchDirections() {
     const route = data.routes?.[0];
     if (!route) return;
     updateDirectionsDisplay(route);
-    // Also update the duration on the mode button
     const durElId = directionsState.profile === 'driving-traffic' ? 'dur-drive' : directionsState.profile === 'cycling' ? 'dur-cycle' : 'dur-walk';
     const durBtn = document.getElementById(durElId);
     if (durBtn) durBtn.textContent = Math.round(route.duration / 60) + ' min';
@@ -1180,12 +1594,8 @@ async function fetchDirections() {
 
 function drawRoute(geometry) {
   if (!map.getSource('route')) return;
-  map.getSource('route').setData({
-    type: 'Feature',
-    geometry: geometry,
-  });
+  map.getSource('route').setData({ type: 'Feature', geometry });
 
-  // Add start/end markers
   if (window._startMarker) window._startMarker.remove();
   if (window._endMarker) window._endMarker.remove();
 
@@ -1202,12 +1612,12 @@ function previewRoute() {
   if (!directionsState.geometry) return;
   const coords = directionsState.geometry.coordinates;
   const bounds = coords.reduce((b, c) => b.extend(c), new mapboxgl.LngLatBounds(coords[0], coords[0]));
-  map.fitBounds(bounds, { padding: 80, duration: 480 });
+  map.fitBounds(bounds, { padding: { top: 80, bottom: 260, left: 60, right: 60 }, duration: 480 });
 }
 
 function closeDirections() {
   clearMapOverlays();
-  setMode('map');
+  goTo('idle');
 }
 
 function clearMapOverlays() {
@@ -1228,11 +1638,9 @@ function clearMapOverlays() {
 
 // ========== Incidents ==========
 async function fetchIncidents(routeGeometry) {
-  // Use the Mapbox Incidents API (v1)
   const token = TokenManager.get();
   if (!routeGeometry) return;
 
-  // Build a bounding box from the route
   const coords = routeGeometry.coordinates;
   let minLng = Infinity, maxLng = -Infinity, minLat = Infinity, maxLat = -Infinity;
   coords.forEach(c => {
@@ -1244,11 +1652,7 @@ async function fetchIncidents(routeGeometry) {
     const resp = await fetch(
       `https://api.mapbox.com/incidents/v1/mapbox/traffic/${minLng},${minLat},${maxLng},${maxLat}?access_token=${encodeURIComponent(token)}`
     );
-    if (!resp.ok) {
-      // Incidents API may not be available with all tokens; gracefully degrade
-      incidents = [];
-      return;
-    }
+    if (!resp.ok) { incidents = []; return; }
     const data = await resp.json();
     incidents = (data.features || []).map(f => ({
       type: f.properties?.description || f.properties?.type || 'Incident',
@@ -1259,26 +1663,18 @@ async function fetchIncidents(routeGeometry) {
       coordinates: f.geometry?.coordinates?.[0] || f.geometry?.coordinates,
     })).filter(i => i.coordinates);
 
-    // Add markers
     if (window._incidentMarkers) window._incidentMarkers.forEach(m => m.remove());
     window._incidentMarkers = incidents.map(inc => {
-      const colors = {
-        major: { bg: '#C73A2D', ring: '#7A1F16' },
-        moderate: { bg: '#E09128', ring: '#7A4D10' },
-        minor: { bg: '#C8FF4C', ring: '#0B1F14' },
-      };
+      const colors = { major: { bg: '#C73A2D', ring: '#7A1F16' }, moderate: { bg: '#E09128', ring: '#7A4D10' }, minor: { bg: '#C8FF4C', ring: '#0B1F14' } };
       const c = colors[inc.severity] || colors.minor;
       const el = document.createElement('div');
       el.style.cssText = `width:22px;height:22px;border-radius:50%;background:${c.bg};border:2px solid ${c.ring};display:flex;align-items:center;justify-content:center;font-family:var(--font-ui);font-size:12px;font-weight:800;color:${c.ring};box-shadow:0 2px 4px rgba(11,31,20,.3)`;
       el.textContent = '!';
       const coord = Array.isArray(inc.coordinates[0]) ? inc.coordinates[0] : inc.coordinates;
-      const marker = new mapboxgl.Marker({ element: el })
+      return new mapboxgl.Marker({ element: el })
         .setLngLat(coord)
-        .setPopup(new mapboxgl.Popup({ offset: 15 }).setHTML(
-          `<strong>${inc.type}</strong><br>${inc.description}<br><small>${inc.location} ${inc.delay ? '&middot; +' + inc.delay : ''}</small>`
-        ))
+        .setPopup(new mapboxgl.Popup({ offset: 15 }).setHTML(`<strong>${inc.type}</strong><br>${inc.description}<br><small>${inc.location} ${inc.delay ? '&middot; +' + inc.delay : ''}</small>`))
         .addTo(map);
-      return marker;
     });
   } catch (e) {
     console.error('Incidents error:', e);
@@ -1290,7 +1686,6 @@ function showIncidentsSheet() {
   const el = document.getElementById('incidents-sheet');
   if (!incidents.length) {
     el.innerHTML = `
-  
       <div class="eyebrow">Traffic along this route</div>
       <div class="sheet-title">No incidents</div>
       <div class="sheet-sub">Route is clear of reported incidents.</div>
@@ -1300,7 +1695,6 @@ function showIncidentsSheet() {
   }
 
   el.innerHTML = `
-
     <div class="eyebrow">Traffic along this route</div>
     <div class="sheet-title">${incidents.length} incident${incidents.length > 1 ? 's' : ''} ahead</div>
     <div class="sheet-sub">Check route for delays.</div>
@@ -1309,9 +1703,7 @@ function showIncidentsSheet() {
         <div class="incident-row">
           <div class="sev-badge sev-${inc.severity}">!</div>
           <div style="flex:1">
-            <div style="display:flex;gap:10px;align-items:center;margin-bottom:2px">
-              <div class="incident-type ${inc.severity}">${inc.type}</div>
-            </div>
+            <div class="incident-type ${inc.severity}">${inc.type}</div>
             <div style="font-family:var(--font-display);font-weight:600;font-size:18px;letter-spacing:-0.02em;color:var(--forest-ink);line-height:1.2;font-variation-settings:'opsz' 36">${inc.description}</div>
             <div style="font-family:var(--font-ui);font-size:12px;color:var(--fog-60);margin-top:4px">${inc.location}${inc.delay ? ' &middot; adds ' + inc.delay : ''}</div>
           </div>
@@ -1326,7 +1718,6 @@ function showIncidentsSheet() {
 function showIsochroneSheet() {
   const el = document.getElementById('isochrone-sheet');
   el.innerHTML = `
-
     <div class="eyebrow">Isochrone &middot; ${isoState.pin ? 'Custom pin' : 'Your location'}</div>
     <div class="sheet-title">What's within <em style="font-style:italic;border-bottom:3px solid var(--lime-signal)">${isoState.minutes} minutes</em>?</div>
     <div class="sheet-sub">Tap the map to move the pin. See the reachable area by ${isoState.profile}.</div>
@@ -1351,24 +1742,19 @@ function showIsochroneSheet() {
       Show all contours (5, 15, 30)
     </button>
 
-    <div style="margin-top:14px;padding:12px 14px;background:var(--paper);border-radius:var(--radius-button)">
-      <div class="eyebrow" style="margin-bottom:8px">Reachable area</div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        ${[{ t: 5, c: '#C8FF4C' }, { t: 15, c: '#9FCF2E' }, { t: 30, c: '#3A6E52' }].map(l => `
-          <div style="display:flex;align-items:center;gap:6px">
-            <div style="width:14px;height:14px;border-radius:4px;background:${l.c};opacity:.7;border:1px dashed var(--forest-ink)"></div>
-            <span style="font-family:var(--font-mono);font-size:11px;color:var(--forest-ink)">${l.t}m</span>
-          </div>
-        `).join('')}
-      </div>
-    </div>
-
     <div style="display:flex;gap:8px;margin-top:16px">
-      <button class="btn-primary" style="flex:1" onclick="setMode('map')">Keep on map</button>
-      <button class="btn-secondary" onclick="clearMapOverlays();setMode('map')">Clear</button>
+      <button class="btn-primary" style="flex:1" onclick="goTo('idle')">Keep on map</button>
+      <button class="btn-secondary" onclick="startDirectionsFromIso()" style="display:flex;align-items:center;gap:6px;font-size:12px">${icon('compass', 14)} Directions from here</button>
+      <button class="btn-secondary" onclick="clearMapOverlays();goTo('idle')">Clear</button>
     </div>
   `;
   el.style.display = 'block';
+}
+
+function startDirectionsFromIso() {
+  if (!isoState.pin) return;
+  const from = { name: 'Isochrone center', coords: isoState.pin };
+  goTo('directions', { from });
 }
 
 function setIsoProfile(profile) {
@@ -1426,7 +1812,6 @@ async function fetchIsochrone() {
       30: { fill: 'rgba(58,110,82,.28)', stroke: 'rgba(58,110,82,.6)', opacity: 0.9 },
     };
 
-    // Annotate features with colors
     const features = (data.features || []).map(f => {
       const min = f.properties?.contour;
       const colors = colorMap[min] || colorMap[15];
@@ -1435,8 +1820,6 @@ async function fetchIsochrone() {
       f.properties.opacity = colors.opacity;
       return f;
     });
-
-    // Reverse so larger contours are drawn first (behind smaller ones)
     features.reverse();
 
     if (map.getSource('isochrone')) {
@@ -1459,7 +1842,6 @@ function showLayersSheet() {
   ];
 
   el.innerHTML = `
-
     <div class="eyebrow">Map</div>
     <div class="sheet-title">Layers &amp; vibes</div>
 
@@ -1474,29 +1856,20 @@ function showLayersSheet() {
     </div>
 
     <div class="toggle-row">
-      <div style="flex:1">
-        <div class="toggle-row-label">3D buildings</div>
-        <div class="toggle-row-sub">Isometric extrusions</div>
-      </div>
+      <div style="flex:1"><div class="toggle-row-label">3D buildings</div><div class="toggle-row-sub">Isometric extrusions</div></div>
       <button class="toggle ${show3D ? 'on' : ''}" onclick="toggle3D()"><div class="knob"></div></button>
     </div>
     <div class="toggle-row">
-      <div style="flex:1">
-        <div class="toggle-row-label">Terrain</div>
-        <div class="toggle-row-sub">Subtle elevation shading</div>
-      </div>
+      <div style="flex:1"><div class="toggle-row-label">Terrain</div><div class="toggle-row-sub">Subtle elevation shading</div></div>
       <button class="toggle ${showTerrain ? 'on' : ''}" onclick="toggleTerrain()"><div class="knob"></div></button>
     </div>
     <div class="toggle-row" style="border-bottom:none">
-      <div style="flex:1">
-        <div class="toggle-row-label">Live traffic</div>
-        <div class="toggle-row-sub">Driving-traffic profile</div>
-      </div>
+      <div style="flex:1"><div class="toggle-row-label">Live traffic</div><div class="toggle-row-sub">Driving-traffic profile</div></div>
       <button class="toggle ${showTraffic ? 'on' : ''}" onclick="toggleTrafficLayer()"><div class="knob"></div></button>
     </div>
 
     <div style="margin-top:16px">
-      <button class="btn-secondary" style="width:100%" onclick="setMode('map')">Close</button>
+      <button class="btn-secondary" style="width:100%" onclick="goTo('idle')">Close</button>
     </div>
 
     <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(11,31,20,.08)">
@@ -1508,40 +1881,16 @@ function showLayersSheet() {
   el.style.display = 'block';
 }
 
-function setVibe(id) {
-  applyVibe(id);
-  showLayersSheet();
-}
-
-function toggle3D() {
-  show3D = !show3D;
-  localStorage.setItem('vibemaps_3d', show3D);
-  try { map.setConfigProperty('basemap', 'show3dObjects', show3D); } catch (e) {}
-  showLayersSheet();
-}
-
-function toggleTerrain() {
-  showTerrain = !showTerrain;
-  localStorage.setItem('vibemaps_terrain', showTerrain);
-  try { map.setConfigProperty('basemap', 'showTerrain', showTerrain); } catch (e) {}
-  showLayersSheet();
-}
-
-function toggleTrafficLayer() {
-  showTraffic = !showTraffic;
-  localStorage.setItem('vibemaps_traffic', showTraffic);
-  showLayersSheet();
-}
-
-function clearToken() {
-  TokenManager.clear();
-  window.location.reload();
-}
+function setVibe(id) { applyVibe(id); showLayersSheet(); }
+function toggle3D() { show3D = !show3D; localStorage.setItem('vibemaps_3d', show3D); try { map.setConfigProperty('basemap', 'show3dObjects', show3D); } catch (e) {} showLayersSheet(); }
+function toggleTerrain() { showTerrain = !showTerrain; localStorage.setItem('vibemaps_terrain', showTerrain); try { map.setConfigProperty('basemap', 'showTerrain', showTerrain); } catch (e) {} showLayersSheet(); }
+function toggleTrafficLayer() { showTraffic = !showTraffic; localStorage.setItem('vibemaps_traffic', showTraffic); showLayersSheet(); }
+function clearToken() { TokenManager.clear(); window.location.reload(); }
 
 // ========== Recenter ==========
 function recenter() {
   if (userPosition) {
-    map.jumpTo({ center: [userPosition.lng, userPosition.lat], zoom: 15 });
+    map.flyTo({ center: [userPosition.lng, userPosition.lat], zoom: 15, duration: 400 });
   } else {
     geoControl.trigger();
   }
