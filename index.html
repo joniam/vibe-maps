@@ -333,7 +333,7 @@ input { font-family: inherit; border: none; outline: none; background: transpare
   box-shadow: 0 -20px 60px rgba(11,31,20,.28);
 }
 #api-key-input {
-  flex: 1; font-family: var(--font-mono); font-size: 13px; color: var(--forest-ink);
+  flex: 1; font-family: var(--font-mono); font-size: 16px; color: var(--forest-ink);
 }
 
 /* ========== Place Sheet ========== */
@@ -431,7 +431,7 @@ input { font-family: inherit; border: none; outline: none; background: transpare
       <div style="font-family:var(--font-display);font-style:italic;font-size:16px;color:var(--fog-60);margin-bottom:16px">Stored on this device only. Never sent to a server.</div>
       <div style="display:flex;gap:8px;align-items:center;background:var(--paper);border-radius:var(--radius-button);padding:12px 14px;margin-bottom:14px;border:1px solid rgba(11,31,20,.08)">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--fog-40)">pk.</div>
-        <input id="api-key-input" type="text" placeholder="eyJ1Ijoi..." />
+        <input id="api-key-input" type="text" placeholder="eyJ1Ijoi..." onkeydown="if(event.key==='Enter')saveApiKey()" />
       </div>
       <button class="btn-primary" onclick="saveApiKey()">Save &amp; Continue</button>
       <div style="text-align:center;margin-top:8px">
